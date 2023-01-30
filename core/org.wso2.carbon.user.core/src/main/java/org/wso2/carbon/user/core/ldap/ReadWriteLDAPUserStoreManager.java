@@ -1461,14 +1461,13 @@ public class ReadWriteLDAPUserStoreManager extends ReadOnlyLDAPUserStoreManager 
                                             searchBase);
                             // assume only one group with given group name
                             //TODO - https://github.com/wso2/product-is/issues/11925
-                            String groupDN = "cn=" + newRole;
                             if (!groupResults.hasMore()) {
-                                modifyUserInRole(userNameDN, groupDN, DirContext.ADD_ATTRIBUTE,
+                                modifyUserInRole(userNameDN, newRole, DirContext.ADD_ATTRIBUTE,
                                         searchBase);
                             } else {
                                 errorMessage =
                                         "User: " + userName + " already belongs to role: " +
-                                                groupDN;
+                                                newRole;
                                 throw new UserStoreException(errorMessage);
                             }
 
@@ -1546,10 +1545,13 @@ public class ReadWriteLDAPUserStoreManager extends ReadOnlyLDAPUserStoreManager 
                 groupDN = StringUtils.substring(groupDN,0, -1);
             }
             // Handling role in main Group search base.
-            if (StringUtils.split(groupDN, EQUAL_SIGN).length == 2) {
+            String[] groupDNAttributeList = StringUtils.split(groupDN, EQUAL_SIGN);
+            if (groupDNAttributeList.length == 2) {
                 String groupNameAttributeValue = (String) attribute.get();
                 return realmConfig.getUserStoreProperty(LDAPConstants.GROUP_NAME_ATTRIBUTE)
                         + EQUAL_SIGN + groupNameAttributeValue;
+            } else if (groupDNAttributeList.length > 2) {
+                return StringUtils.split(StringUtils.split(groupDN, ",")[0], EQUAL_SIGN)[1];
             }
             return groupDN;
         }
@@ -1713,6 +1715,32 @@ public class ReadWriteLDAPUserStoreManager extends ReadOnlyLDAPUserStoreManager 
                     + " in search base: " + searchBase);
         }
 
+        DirContext dirContext = this.connectionSource.getContext();
+        SearchControls searchControls = new SearchControls();
+        searchControls.setSearchScope(SearchControls.SUBTREE_SCOPE);
+        searchControls.setReturningAttributes(null);
+
+        String groupSearchFilter = realmConfig
+                .getUserStoreProperty(LDAPConstants.ROLE_NAME_FILTER);
+        groupSearchFilter = groupSearchFilter.replace("?", escapeSpecialCharactersForFilter(groupRDN));
+        NamingEnumeration<SearchResult> returnedResultList = null;
+        String returnedGroupEntry;
+
+        try {
+            returnedResultList = dirContext.search(escapeDNForSearch(groupSearchBase),
+                    groupSearchFilter, searchControls);
+            // Assume only one group is returned from the search.
+            returnedGroupEntry = returnedResultList.next().getName();
+        } catch (NamingException e) {
+            String errorMessage = "Results could not be retrieved from the directory context for group : " + groupRDN;
+            if (log.isDebugEnabled()) {
+                log.debug(errorMessage, e);
+            }
+            throw new UserStoreException(errorMessage, e);
+        } finally {
+            JNDIUtil.closeNamingEnumeration(returnedResultList);
+        }
+
         DirContext mainDirContext = null;
         DirContext groupContext = null;
         try {
@@ -1724,7 +1752,7 @@ public class ReadWriteLDAPUserStoreManager extends ReadOnlyLDAPUserStoreManager 
             memberAttribute.add(userNameDN);
             modifyingAttributes.put(memberAttribute);
 
-            groupContext.modifyAttributes(groupRDN, modifyType, modifyingAttributes);
+            groupContext.modifyAttributes(returnedGroupEntry, modifyType, modifyingAttributes);
             if (log.isDebugEnabled()) {
                 logger.debug("User: " + userNameDN + " was successfully " + "modified in LDAP group: "
                         + groupRDN);
