@@ -3097,6 +3097,11 @@ public abstract class AbstractUserStoreManager implements PaginatedUserStoreMana
             extractedDomain = names[0].trim();
         }
 
+        // Extracting the domain using user id.
+        if (StringUtils.isBlank(extractedDomain) && UserCoreClaimConstants.USER_ID_CLAIM_URI.equalsIgnoreCase(claim)) {
+            extractedDomain = getDomainWithUserID(claimValue);
+        }
+
         UserStoreManager userManager = this;
         /*
         * This method("getUserListWithID") can be called for secondary userstore managers.
@@ -17929,5 +17934,21 @@ public abstract class AbstractUserStoreManager implements PaginatedUserStoreMana
     public void removeGroupRoleMappingByGroupName(String groupName) throws UserStoreException {
 
         hybridRoleManager.removeGroupRoleMappingByGroupName(groupName);
+    }
+
+    /**
+     * Get the domain name using the user ID.
+     *
+     * @param userId User ID.
+     * @throws UserStoreException Exception when the user does not exist.
+     */
+    private String getDomainWithUserID(String userId) throws UserStoreException {
+
+        UserStore userStore = getUserStoreWithID(userId);
+        String domain = null;
+        if (userStore != null && StringUtils.isNotBlank(userStore.getDomainName())) {
+            domain = userStore.getDomainName();
+        }
+        return domain;
     }
 }
